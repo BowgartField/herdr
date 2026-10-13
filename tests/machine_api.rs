@@ -40,7 +40,7 @@ fi
 printf '%s' "$control" > "$TEST_ROOT/control-path"
 if [ -n "$TEST_CONTROL" ] && [ -S "$TEST_CONTROL" ]; then
     if [ "$TEST_MODE" = frozen ] && [ "$last" != '/bin/sh -s' ]; then
-        sleep 30
+        exec sleep 30
     else
         echo 'test reused transport failed' >&2
         exit 255
