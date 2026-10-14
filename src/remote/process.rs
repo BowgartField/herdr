@@ -436,7 +436,13 @@ pub(in crate::remote) mod tests {
             let error = wait_with_output_timeout(
                 child,
                 Some(vec![b'x'; 1024 * 1024]),
-                Duration::from_millis(200),
+                // Test cancellation independently of the scheduler's ability
+                // to run its thread within the timeout branch's 100 ms margin.
+                if cancel {
+                    Duration::from_secs(5)
+                } else {
+                    Duration::from_millis(200)
+                },
                 stopped,
             )
             .unwrap_err();
