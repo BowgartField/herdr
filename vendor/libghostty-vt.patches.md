@@ -256,13 +256,19 @@ still present on upstream main (`cursorChangePin` around line 1606 and
 `cursorPageReplaced` around line 706 at 22fa134a0). This is not the one-row
 scrollback prune fixed by 65ff54c67.
 
+The same function also crashes when style migration hits the maximum style
+capacity: the page split moves the cursor again, and the nested pin change
+releases hyperlink id 0 from a page that no longer holds it. The patch skips
+that release when an outer pin change already released the link.
+
 remove when: the vendored source keeps the cursor hyperlink alive across a
-page replacement during a pin change, and the Screen test below passes
-without this patch.
+page replacement or page split during a pin change, and both Screen tests
+below pass without this patch.
 
 verification:
 
 ```sh
 (cd vendor/libghostty-vt && zig build test-lib-vt -Dtest-filter='cursorAbsolute across a full page keeps the hyperlink')
+(cd vendor/libghostty-vt && zig build test-lib-vt -Dtest-filter='cursorAbsolute keeps the hyperlink when style migration splits the page')
 just maintenance-test
 ```

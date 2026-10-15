@@ -1518,7 +1518,8 @@ inline fn cursorChangePin(self: *Screen, new: Pin) void {
     }
 
     // If we have a hyperlink then we need to release it from the old page.
-    if (self.cursor.hyperlink != null) {
+    // A zero id means an outer pin change already released it.
+    if (self.cursor.hyperlink != null and self.cursor.hyperlink_id != 0) {
         const old_page: *Page = self.cursor.page_pin.node.page();
         old_page.hyperlink_set.release(old_page.memory, self.cursor.hyperlink_id);
         // Zero the ID, it is invalid now and style changes below may
@@ -5067,6 +5068,43 @@ test "Screen: cursorAbsolute across a full page keeps the hyperlink" {
     s.endHyperlink();
     try testing.expect(s.cursor.hyperlink == null);
     try testing.expect(s.cursor.hyperlink_id == 0);
+}
+
+test "Screen: cursorAbsolute keeps the hyperlink when style migration splits the page" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var s = try init(testing.io, alloc, .{ .cols = 10, .rows = 3, .max_scrollback_bytes = 1 });
+    defer s.deinit();
+
+    var destination_node = s.cursor.page_pin.node;
+    const rem = destination_node.page().capacity.rows;
+    for (0..rem) |_| try s.cursorDownOrScroll();
+    try testing.expect(destination_node != s.cursor.page_pin.node);
+
+    const max_styles = std.math.maxInt(size.CellCountInt);
+    while (destination_node.capacity().styles < max_styles) {
+        destination_node = try s.increaseCapacity(destination_node, .styles);
+    }
+    const destination_page = destination_node.page();
+    {
+        destination_page.pauseIntegrityChecks(true);
+        defer destination_page.pauseIntegrityChecks(false);
+        var n: u24 = 1;
+        while (destination_page.styles.add(
+            destination_page.memory,
+            .{ .bg_color = .{ .rgb = @bitCast(n) } },
+        )) |_| n += 1 else |_| {}
+    }
+
+    // The destination style set is already at its maximum capacity, so
+    // style migration splits the page and moves the cursor again.
+    try s.setAttribute(.bold);
+    try s.startHyperlink("https://example.com/5296-split", "keep");
+    s.cursorAbsolute(1, 1);
+
+    try testing.expect(s.cursor.hyperlink_id != 0);
+    try testing.expectEqualStrings("https://example.com/5296-split", s.cursor.hyperlink.?.uri);
+    s.endHyperlink();
 }
 
 test "Screen: scrolling" {
