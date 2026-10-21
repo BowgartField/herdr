@@ -5354,6 +5354,8 @@ fn terminal_attach_client_exits_when_worktree_remove_succeeds() {
                     operation_id: 7,
                     checkout_key,
                     shutdown_panes: vec![pane_id],
+                    repo_root: std::path::PathBuf::new(),
+                    trust_repository: false,
                     respond_to,
                 }),
                 result: Ok(()),

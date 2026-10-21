@@ -894,6 +894,7 @@ pub(crate) struct ClientShellState {
     pub(super) last_tab_bar_width: Option<u16>,
     pub(super) last_composed_size: Option<(u16, u16)>,
     pub(super) last_composed_at: Option<std::time::Instant>,
+    pub(super) spinner_frame: usize,
     pub(super) selection_repaint_deadline: Option<std::time::Instant>,
     pub(super) hits: ShellHitMap,
     pub(super) endpoints: Vec<ClientShellEndpoint>,
@@ -1068,6 +1069,7 @@ impl ClientShellState {
             last_tab_bar_width: None,
             last_composed_size: None,
             last_composed_at: None,
+            spinner_frame: 0,
             selection_repaint_deadline: None,
             hits: ShellHitMap::default(),
             endpoints: vec![local_endpoint()],
@@ -1226,6 +1228,59 @@ impl ClientShellState {
             self.focused_tab_count(),
             self.sidebar_width,
         )
+    }
+
+    pub(super) fn visible_worktree_setup_progress(
+        &self,
+    ) -> Option<&crate::protocol::ClientShellWorktreeProgress> {
+        if self.overlay.is_some() || self.mode == ClientShellMode::Navigate {
+            return None;
+        }
+
+        let snapshot = self.snapshot.as_deref()?;
+        let surface = self.pane_surface.as_ref()?;
+        if self.pending_pane_surface.is_some()
+            || self.pane_surface_generation != self.active_snapshot_generation
+            || snapshot.revision != surface.projection_revision
+        {
+            return None;
+        }
+
+        let (cols, rows) = self.last_composed_size?;
+        let area = self.layout(cols, rows).pane_surface;
+        if area.width < 20 || area.height < 4 {
+            return None;
+        }
+
+        self.focused_worktree_setup_progress()
+    }
+
+    pub(super) fn focused_worktree_setup_progress(
+        &self,
+    ) -> Option<&crate::protocol::ClientShellWorktreeProgress> {
+        let snapshot = self.snapshot.as_deref()?;
+        let workspace_id = snapshot.focused_workspace_id.as_deref()?;
+        let tab = snapshot.tabs.iter().find(|tab| {
+            tab.workspace_id == workspace_id
+                && Some(tab.tab_id.as_str()) == snapshot.focused_tab_id.as_deref()
+        })?;
+        if tab.number != 1 {
+            return None;
+        }
+        snapshot
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.workspace_id == workspace_id)?
+            .worktree
+            .as_ref()?
+            .progress
+            .as_ref()
+            .filter(|progress| {
+                matches!(
+                    progress.phase,
+                    crate::protocol::ClientShellWorktreeProgressPhase::Setup
+                )
+            })
     }
 
     pub(crate) fn surface_size(&self, cols: u16, rows: u16) -> ClientSurfaceSize {
@@ -1876,6 +1931,24 @@ impl ClientShellState {
             return true;
         }
         false
+    }
+
+    pub(crate) fn tick_worktree_spinner(&mut self) -> bool {
+        let has_progress = self.endpoints.iter().any(|endpoint| {
+            endpoint.snapshot.as_deref().is_some_and(|snapshot| {
+                snapshot.workspaces.iter().any(|workspace| {
+                    workspace
+                        .worktree
+                        .as_ref()
+                        .is_some_and(|worktree| worktree.progress.is_some())
+                })
+            })
+        });
+        if !has_progress {
+            return false;
+        }
+        self.spinner_frame = (self.spinner_frame + 1) % 10;
+        true
     }
 
     pub(crate) fn timer_delay(&self, now: std::time::Instant) -> std::time::Duration {

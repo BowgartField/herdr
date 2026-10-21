@@ -158,6 +158,10 @@ pub(super) fn render_collapsed(
             } else {
                 Modifier::empty()
             };
+            let worktree_progress = workspace
+                .worktree
+                .as_ref()
+                .is_some_and(|worktree| worktree.progress.is_some());
             put_text(
                 buffer,
                 rect.x,
@@ -177,10 +181,16 @@ pub(super) fn render_collapsed(
                 rect.x.saturating_add(number_width),
                 rect.y,
                 rect.width.saturating_sub(number_width),
-                status_icon(workspace.agent_status, config.status_indicators),
+                if worktree_progress {
+                    worktree_spinner_icon(state.spinner_frame)
+                } else {
+                    status_icon(workspace.agent_status, config.status_indicators)
+                },
                 Style::default()
                     .fg(if stale {
                         palette.overlay0
+                    } else if worktree_progress {
+                        palette.accent
                     } else {
                         status_color(workspace.agent_status, palette)
                     })
@@ -475,6 +485,11 @@ pub(super) fn render_expanded(
                     config.status_indicators,
                     entry,
                     tokens,
+                    workspace
+                        .worktree
+                        .as_ref()
+                        .is_some_and(|worktree| worktree.progress.is_some()),
+                    state.spinner_frame,
                     endpoint_active && workspace.focused,
                     selected,
                     state.selected_workspace_id.is_some(),

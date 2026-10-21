@@ -49,6 +49,7 @@ pub(crate) fn render_collapsed_sidebar(
     area: Rect,
     snapshot: &ClientShellSnapshot,
     config: &ClientShellConfig,
+    spinner_frame: usize,
     selected_workspace_id: Option<&str>,
     hits: &mut ShellHitMap,
 ) {
@@ -93,13 +94,25 @@ pub(crate) fn render_collapsed_sidebar(
             number_style,
         );
         let status = workspace.agent_status;
+        let worktree_progress = workspace
+            .worktree
+            .as_ref()
+            .is_some_and(|worktree| worktree.progress.is_some());
         put_text(
             buffer,
             rect.x.saturating_add(2),
             rect.y,
             rect.width.saturating_sub(2),
-            status_icon(status, config.status_indicators),
-            Style::default().fg(status_color(status, palette)),
+            if worktree_progress {
+                worktree_spinner_icon(spinner_frame)
+            } else {
+                status_icon(status, config.status_indicators)
+            },
+            Style::default().fg(if worktree_progress {
+                palette.accent
+            } else {
+                status_color(status, palette)
+            }),
         );
         hits.workspaces.push(WorkspaceHit {
             rect,
@@ -328,6 +341,11 @@ pub(crate) fn render_sidebar(
             config.status_indicators,
             entry,
             rows,
+            workspace
+                .worktree
+                .as_ref()
+                .is_some_and(|worktree| worktree.progress.is_some()),
+            state.spinner_frame,
             workspace.focused,
             selected,
             state.selected_workspace_id.is_some(),
@@ -676,7 +694,7 @@ pub(in crate::client::shell) fn workspace_rows(
         &workspace.label
     };
     let token_values = workspace.tokens.iter().cloned().collect::<HashMap<_, _>>();
-    crate::ui::sidebar_space_rows(
+    let mut rows = crate::ui::sidebar_space_rows(
         config,
         crate::ui::SpaceTokenContext {
             workspace: label,
@@ -686,7 +704,25 @@ pub(in crate::client::shell) fn workspace_rows(
             tokens: &token_values,
             suppress_git_details: indented,
         },
-    )
+    );
+    if let Some(progress) = workspace
+        .worktree
+        .as_ref()
+        .and_then(|worktree| worktree.progress.as_ref())
+    {
+        let mut label = progress
+            .step
+            .as_deref()
+            .unwrap_or("Worktree in progress")
+            .to_string();
+        if let Some(percent) = progress.percent {
+            label.push_str(&format!(" · {percent}%"));
+        }
+        rows.push(vec![crate::ui::ResolvedToken::unstyled(
+            crate::ui::ResolvedTokenKind::Custom(label),
+        )]);
+    }
+    rows
 }
 
 pub(in crate::client::shell) fn render_workspace_rows(
@@ -696,6 +732,8 @@ pub(in crate::client::shell) fn render_workspace_rows(
     indicators: crate::config::StatusIndicatorStyle,
     entry: &WorkspaceEntry,
     rows: Vec<Vec<crate::ui::ResolvedToken>>,
+    worktree_progress: bool,
+    spinner_frame: usize,
     focused: bool,
     selected: bool,
     navigating: bool,
@@ -753,8 +791,16 @@ pub(in crate::client::shell) fn render_workspace_rows(
         let spans = crate::ui::resolved_token_spans(
             row,
             (
-                status_icon(status, indicators),
-                Style::default().fg(status_color(status, palette)),
+                if worktree_progress {
+                    worktree_spinner_icon(spinner_frame)
+                } else {
+                    status_icon(status, indicators)
+                },
+                Style::default().fg(if worktree_progress {
+                    palette.accent
+                } else {
+                    status_color(status, palette)
+                }),
             ),
             Style::default().fg(status_color(status, palette)),
             workspace_style,

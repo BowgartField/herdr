@@ -45,6 +45,15 @@ pub(super) fn run_plugin_command(args: &[String]) -> std::io::Result<i32> {
     match method {
         Method::PluginLink(params) => plugin_link(params),
         Method::PluginList(params) => plugin_list(params, json),
+        Method::PluginProgressReport(mut params) => {
+            if params.log_id.is_none() {
+                params.log_id = std::env::var("HERDR_PLUGIN_LOG_ID").ok();
+            }
+            if params.plugin_id.is_none() {
+                params.plugin_id = std::env::var("HERDR_PLUGIN_ID").ok();
+            }
+            print_plugin_response(Method::PluginProgressReport(params))
+        }
         method => print_plugin_response(method),
     }
 }

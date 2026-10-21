@@ -62,6 +62,7 @@ impl ClientShellState {
             collapsed_groups: &self.collapsed_groups,
             remote_collapsed_groups: &self.remote_collapsed_groups,
             workspace_scroll: &mut self.workspace_scroll,
+            spinner_frame: self.spinner_frame,
             agent_scroll: &mut self.agent_scroll,
             tab_scroll: &mut self.tab_scroll,
             reveal_focused_workspace: &mut self.reveal_focused_workspace,
@@ -218,6 +219,7 @@ impl ClientShellState {
                 collapsed_groups: &self.collapsed_groups,
                 remote_collapsed_groups: &self.remote_collapsed_groups,
                 workspace_scroll: &mut self.workspace_scroll,
+                spinner_frame: self.spinner_frame,
                 agent_scroll: &mut self.agent_scroll,
                 tab_scroll: &mut self.tab_scroll,
                 reveal_focused_workspace: &mut self.reveal_focused_workspace,
@@ -413,6 +415,16 @@ impl ClientShellState {
             frame.replace_from_ratatui_buffer_preserving_effects(&composed, cursor);
         }
         self.render_link_hover(&mut frame, &mut occlusion);
+        if let Some(progress) = self.visible_worktree_setup_progress() {
+            if let Some(area) = render_worktree_setup_progress(
+                &mut frame,
+                layout.pane_surface,
+                progress,
+                &self.config.palette,
+            ) {
+                occlusion.cover(area);
+            }
+        }
         if self.mode == ClientShellMode::Copy {
             frame.cursor = None;
             if let Some(copy_mode) = self.copy_mode.as_ref() {
@@ -670,6 +682,7 @@ impl ClientShellState {
                     &self.active_endpoint_id,
                     &self.config.keybinds,
                     &self.config.palette,
+                    self.spinner_frame,
                 )?;
                 occlusion.cover(rendered.area);
                 self.hits.overlay_primary = rendered.primary;
@@ -723,6 +736,63 @@ impl ClientShellState {
         let graphics = self.compose_graphics(layout, &occlusion);
         Some(crate::client::frame_output::ComposedFrame { frame, graphics })
     }
+}
+
+fn render_worktree_setup_progress(
+    frame: &mut FrameData,
+    area: Rect,
+    progress: &crate::protocol::ClientShellWorktreeProgress,
+    palette: &crate::app::state::Palette,
+) -> Option<Rect> {
+    if area.width < 20 || area.height < 4 {
+        return None;
+    }
+    let width = area.width.min(58);
+    let height = area.height.min(5);
+    let popup = Rect::new(
+        area.x.saturating_add(area.width.saturating_sub(width) / 2),
+        area.y
+            .saturating_add(area.height.saturating_sub(height) / 2),
+        width,
+        height,
+    );
+    let step = progress
+        .step
+        .as_deref()
+        .unwrap_or("Preparing worktree setup…");
+    let step = match progress.percent {
+        Some(percent) => format!("{percent}% · {step}"),
+        None => step.to_string(),
+    };
+    let mut buffer = frame.to_ratatui_buffer()?;
+    ratatui::widgets::Widget::render(ratatui::widgets::Clear, popup, &mut buffer);
+    let block = ratatui::widgets::Block::default()
+        .borders(ratatui::widgets::Borders::ALL)
+        .border_style(Style::default().fg(palette.accent))
+        .style(Style::default().bg(palette.panel_bg));
+    let inner = block.inner(popup);
+    ratatui::widgets::Widget::render(block, popup, &mut buffer);
+    ratatui::widgets::Widget::render(
+        ratatui::widgets::Paragraph::new(vec![
+            ratatui::text::Line::from(ratatui::text::Span::styled(
+                "Setup worktree…",
+                Style::default()
+                    .fg(palette.text)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            ratatui::text::Line::from(ratatui::text::Span::styled(
+                step,
+                Style::default().fg(palette.subtext0),
+            )),
+        ])
+        .alignment(ratatui::layout::Alignment::Center)
+        .style(Style::default().bg(palette.panel_bg)),
+        inner,
+        &mut buffer,
+    );
+    let cursor = frame.cursor.clone();
+    frame.replace_from_ratatui_buffer_preserving_effects(&buffer, cursor);
+    Some(popup)
 }
 
 fn client_copy_surface_coherent(copy_mode: Option<&ClientCopyModeState>, hit: &PaneHit) -> bool {

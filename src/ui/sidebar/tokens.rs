@@ -46,8 +46,7 @@ impl ResolvedToken {
         Self { kind, style }
     }
 
-    #[cfg(test)]
-    pub(super) fn unstyled(kind: ResolvedTokenKind) -> Self {
+    pub(crate) fn unstyled(kind: ResolvedTokenKind) -> Self {
         Self::new(kind, SidebarTokenStyle::default())
     }
 }

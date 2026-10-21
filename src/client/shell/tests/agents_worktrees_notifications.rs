@@ -98,6 +98,7 @@ fn grouped_worktrees_render_parent_branch_and_indented_child() {
         key: "repo".into(),
         label: "repo".into(),
         is_linked_worktree: false,
+        progress: None,
     });
     snapshot.workspaces.push(ClientShellWorkspace {
         workspace_id: "ws_2".into(),
@@ -113,6 +114,7 @@ fn grouped_worktrees_render_parent_branch_and_indented_child() {
             key: "repo".into(),
             label: "repo".into(),
             is_linked_worktree: true,
+            progress: None,
         }),
         focused: false,
         agent_status: AgentStatus::Idle,
@@ -179,6 +181,7 @@ fn duplicate_repo_parents_remain_visible_and_focusable_when_collapsed() {
             key: "repo".into(),
             label: "repo".into(),
             is_linked_worktree: false,
+            progress: None,
         });
         let mut duplicate = projected.workspaces[0].clone();
         duplicate.workspace_id = "ws_duplicate".into();
@@ -383,6 +386,7 @@ fn duplicate_repo_parent_drag_does_not_target_its_own_move_block() {
         key: "repo".into(),
         label: "repo".into(),
         is_linked_worktree: false,
+        progress: None,
     });
     let mut other = projected.workspaces[0].clone();
     other.workspace_id = "ws_other".into();
@@ -436,6 +440,7 @@ fn workspace_drag_moves_parent_worktree_as_one_block_and_rejects_child() {
         key: "repo".into(),
         label: "repo".into(),
         is_linked_worktree: false,
+        progress: None,
     });
     let mut child = projected.workspaces[0].clone();
     child.workspace_id = "ws_child".into();
@@ -446,6 +451,7 @@ fn workspace_drag_moves_parent_worktree_as_one_block_and_rejects_child() {
         key: "repo".into(),
         label: "repo".into(),
         is_linked_worktree: true,
+        progress: None,
     });
     let mut other = projected.workspaces[0].clone();
     other.workspace_id = "ws_other".into();
@@ -1435,6 +1441,7 @@ fn worktree_remove_escalates_recoverable_failure_to_force_confirmation() {
             key: "repo-key".into(),
             label: "repo".into(),
             is_linked_worktree: true,
+            progress: None,
         });
         let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
         state.set_snapshot(Box::new(snapshot));

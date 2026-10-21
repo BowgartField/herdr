@@ -1,7 +1,71 @@
+use std::collections::HashMap;
+
 use ratatui::layout::Rect;
 
 use crate::app;
 use crate::protocol::{self, FrameData};
+
+fn active_worktree_progress_by_workspace(
+    app: &app::App,
+) -> HashMap<String, HashMap<String, protocol::ClientShellWorktreeProgress>> {
+    let mut selected =
+        HashMap::<(String, String), ((bool, u64), protocol::ClientShellWorktreeProgress)>::new();
+    for log in &app.state.plugin_command_logs {
+        if log.status != crate::api::schema::PluginCommandStatus::Running {
+            continue;
+        }
+        let (Some(workspace_id), Some(worktree_path), Some(event)) = (
+            log.workspace_id.as_deref(),
+            log.worktree_path.as_deref(),
+            log.event.as_deref(),
+        ) else {
+            continue;
+        };
+        let phase = match event {
+            "worktree.created" => protocol::ClientShellWorktreeProgressPhase::Setup,
+            "worktree.removing" => protocol::ClientShellWorktreeProgressPhase::Removal,
+            _ => continue,
+        };
+        let step = log.progress_step.clone().unwrap_or_else(|| match phase {
+            protocol::ClientShellWorktreeProgressPhase::Setup => {
+                "Preparing worktree setup…".to_string()
+            }
+            protocol::ClientShellWorktreeProgressPhase::Removal => {
+                "Preparing worktree removal…".to_string()
+            }
+            protocol::ClientShellWorktreeProgressPhase::Unknown => {
+                "Preparing worktree operation…".to_string()
+            }
+        });
+        let key = (workspace_id.to_owned(), worktree_path.to_owned());
+        let rank = (log.progress_step.is_some(), log.started_unix_ms);
+        if selected
+            .get(&key)
+            .is_none_or(|(current_rank, _)| *current_rank < rank)
+        {
+            selected.insert(
+                key,
+                (
+                    rank,
+                    protocol::ClientShellWorktreeProgress {
+                        phase,
+                        step: Some(step),
+                        percent: log.progress_percent,
+                    },
+                ),
+            );
+        }
+    }
+    let mut by_workspace =
+        HashMap::<String, HashMap<String, protocol::ClientShellWorktreeProgress>>::new();
+    for ((workspace_id, worktree_path), (_, progress)) in selected {
+        by_workspace
+            .entry(workspace_id)
+            .or_default()
+            .insert(worktree_path, progress);
+    }
+    by_workspace
+}
 
 #[cfg(test)]
 pub(super) fn snapshot(
@@ -55,6 +119,7 @@ pub(super) fn snapshot_with_completions(
             app.public_pane_id(workspace_index, pane_id)
         })
         .or_else(|| snapshot.focused_pane_id.clone());
+    let worktree_progress_by_workspace = active_worktree_progress_by_workspace(app);
     let workspaces = snapshot
         .workspaces
         .into_iter()
@@ -68,6 +133,21 @@ pub(super) fn snapshot_with_completions(
                 .and_then(|location| location.active_tab_ids.get(&workspace_id))
                 .cloned()
                 .unwrap_or(workspace.active_tab_id);
+            let worktree_progress = workspace.worktree.as_ref().and_then(|worktree| {
+                let plugin_progress = worktree_progress_by_workspace
+                    .get(&workspace_id)
+                    .and_then(|progresses| progresses.get(&worktree.checkout_path))
+                    .cloned();
+                plugin_progress.or_else(|| {
+                    app.pending_api_worktree_removes
+                        .contains_key(&state.id)
+                        .then(|| protocol::ClientShellWorktreeProgress {
+                            phase: protocol::ClientShellWorktreeProgressPhase::Removal,
+                            step: Some("Removing worktree…".to_string()),
+                            percent: None,
+                        })
+                })
+            });
             let active_tab_index =
                 app.parse_tab_id(&active_tab_id)
                     .and_then(|(tab_workspace_index, tab_index)| {
@@ -93,6 +173,7 @@ pub(super) fn snapshot_with_completions(
                         key: worktree.repo_key,
                         label: worktree.repo_name,
                         is_linked_worktree: worktree.is_linked_worktree,
+                        progress: worktree_progress,
                     }),
                 agent_status: workspace.agent_status,
             }

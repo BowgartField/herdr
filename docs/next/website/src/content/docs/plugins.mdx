@@ -268,11 +268,23 @@ Runtime commands run with the plugin directory as their working directory. Herdr
 injects `HERDR_SOCKET_PATH`, `HERDR_BIN_PATH`, `HERDR_ENV=1`,
 `HERDR_PLUGIN_ID`, `HERDR_PLUGIN_ROOT`, `HERDR_PLUGIN_CONFIG_DIR`,
 `HERDR_PLUGIN_STATE_DIR`, `HERDR_PLUGIN_CONTEXT_JSON`, and any available
-`HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, and `HERDR_PANE_ID`. Action commands also
-receive `HERDR_PLUGIN_ACTION_ID`; startup and event hooks receive
-`HERDR_PLUGIN_EVENT` (`startup` for startup hooks), event hooks additionally
-receive `HERDR_PLUGIN_EVENT_JSON`, and pane commands receive
-`HERDR_PLUGIN_ENTRYPOINT_ID`.
+`HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, and `HERDR_PANE_ID`. Action, startup, and
+event-hook commands also receive `HERDR_PLUGIN_LOG_ID`; action commands receive
+`HERDR_PLUGIN_ACTION_ID`; startup and event hooks receive `HERDR_PLUGIN_EVENT`
+(`startup` for startup hooks), and event hooks additionally receive
+`HERDR_PLUGIN_EVENT_JSON`. Pane commands receive `HERDR_PLUGIN_ENTRYPOINT_ID`.
+
+Action, startup, and event-hook commands can report a current step and optional
+percentage with `herdr plugin progress report`. Herdr supplies the active log
+and plugin ids from the environment, so a script can call it directly:
+
+```sh
+herdr plugin progress report --step "Migrating database" --percent 45
+```
+
+Progress steps may contain up to 160 characters and percentages range from 0
+to 100. Reports are best effort; a reporting error does not change the parent
+command's result.
 
 `HERDR_PLUGIN_ROOT` is the installed or linked plugin directory. Do not store
 user credentials or durable state there, because GitHub-installed plugin roots

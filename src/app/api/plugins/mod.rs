@@ -9,8 +9,8 @@ use crate::api::schema::{
     InstalledPluginInfo, PaneLinkActivateParams, PluginActionInfo, PluginActionInvokeParams,
     PluginActionListParams, PluginLinkParams, PluginListParams, PluginLogListParams,
     PluginManifestAction, PluginManifestLinkHandler, PluginPaneCloseParams, PluginPaneFocusParams,
-    PluginPaneInfo, PluginPaneOpenParams, PluginPanePlacement, PluginSetEnabledParams,
-    PluginUnlinkParams, ResponseResult,
+    PluginPaneInfo, PluginPaneOpenParams, PluginPanePlacement, PluginProgressReportParams,
+    PluginSetEnabledParams, PluginUnlinkParams, ResponseResult,
 };
 use crate::app::App;
 pub(super) use manifest::normalize_plugin_id;
@@ -431,6 +431,74 @@ impl App {
             .collect::<Vec<_>>();
         logs.reverse();
         encode_success(id, ResponseResult::PluginLogList { logs })
+    }
+
+    pub(super) fn handle_plugin_progress_report(
+        &mut self,
+        id: String,
+        params: PluginProgressReportParams,
+    ) -> String {
+        let Some(log_id) = params.log_id else {
+            return encode_error(
+                id,
+                "plugin_invocation_not_found",
+                "progress reports require an active plugin invocation",
+            );
+        };
+        let Some(plugin_id) = params.plugin_id else {
+            return encode_error(
+                id,
+                "plugin_invocation_not_found",
+                "progress reports require a plugin id",
+            );
+        };
+        let step = params.step.trim();
+        if step.is_empty() {
+            return encode_error(id, "invalid_progress", "progress step must not be empty");
+        }
+        if step.chars().count() > 160 {
+            return encode_error(
+                id,
+                "invalid_progress",
+                "progress step must be 160 characters or fewer",
+            );
+        }
+        if params.percent.is_some_and(|percent| percent > 100) {
+            return encode_error(
+                id,
+                "invalid_progress",
+                "progress percentage must be from 0 to 100",
+            );
+        }
+        let Some(log) = self
+            .state
+            .plugin_command_logs
+            .iter_mut()
+            .find(|log| log.log_id == log_id)
+        else {
+            return encode_error(
+                id,
+                "plugin_invocation_not_found",
+                "plugin command invocation was not found",
+            );
+        };
+        if log.plugin_id != plugin_id {
+            return encode_error(
+                id,
+                "plugin_invocation_mismatch",
+                "plugin command invocation belongs to another plugin",
+            );
+        }
+        if log.status != crate::api::schema::PluginCommandStatus::Running {
+            return encode_error(
+                id,
+                "plugin_invocation_finished",
+                "progress can only be reported while the plugin command is running",
+            );
+        }
+        log.progress_step = Some(step.to_string());
+        log.progress_percent = params.percent;
+        encode_success(id, ResponseResult::Ok {})
     }
 
     pub(super) fn handle_plugin_pane_open(

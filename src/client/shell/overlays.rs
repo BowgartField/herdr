@@ -41,6 +41,7 @@ pub(crate) fn render_client_overlay(
     active_endpoint_id: &ClientEndpointId,
     k: &LiveKeybindConfig,
     p: &Palette,
+    spinner_frame: usize,
 ) -> Option<OverlayRender> {
     if !matches!(
         o,
@@ -77,7 +78,16 @@ pub(crate) fn render_client_overlay(
             worktree_overlays::render_worktree_open_overlay(b, v, p)
         }
         ClientShellOverlay::WorktreeRemove(v) => {
-            worktree_overlays::render_worktree_remove_overlay(b, v, p)
+            let progress = s
+                .workspaces
+                .iter()
+                .find(|workspace| workspace.workspace_id == v.workspace_id)
+                .and_then(|workspace| workspace.worktree.as_ref())
+                .and_then(|worktree| worktree.progress.as_ref())
+                .filter(|progress| {
+                    progress.phase == crate::protocol::ClientShellWorktreeProgressPhase::Removal
+                });
+            worktree_overlays::render_worktree_remove_overlay(b, v, progress, spinner_frame, p)
         }
         ClientShellOverlay::ContextMenu(_) | ClientShellOverlay::GlobalMenu(_) => None,
     }

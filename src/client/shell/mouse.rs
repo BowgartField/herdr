@@ -681,6 +681,17 @@ impl ClientShellState {
     /// Hit-test order determines which overlapping control receives the event;
     /// the sidebar toggle takes precedence over the agent scrollbar beneath it.
     pub(super) fn handle_mouse(&mut self, mouse: MouseEvent, outcome: &mut ClientShellInput) {
+        if self.overlay.is_none()
+            && self.popup_terminal_id.is_none()
+            && self.mode != ClientShellMode::Navigate
+            && self.focused_worktree_setup_progress().is_some()
+            && self.last_composed_size.is_some_and(|(cols, rows)| {
+                let area = self.layout(cols, rows).pane_surface;
+                area.contains((mouse.column, mouse.row).into())
+            })
+        {
+            return;
+        }
         self.update_link_hover(mouse, outcome);
         let point = (mouse.column, mouse.row);
         if self.mode == ClientShellMode::Navigate

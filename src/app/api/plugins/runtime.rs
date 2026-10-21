@@ -45,6 +45,7 @@ impl App {
             ("HERDR_ENV".to_string(), "1".to_string()),
             ("HERDR_PLUGIN_ID".to_string(), plugin.plugin_id.clone()),
             ("HERDR_PLUGIN_CONTEXT_JSON".to_string(), context_json),
+            ("HERDR_PLUGIN_LOG_ID".to_string(), log_id.clone()),
         ]);
         if let Ok(current_exe) = crate::platform::launch_executable() {
             env.push((
@@ -88,6 +89,13 @@ impl App {
                 plugin_id: plugin.plugin_id.clone(),
                 action_id,
                 event,
+                workspace_id: context.workspace_id.clone(),
+                worktree_path: context
+                    .worktree
+                    .as_ref()
+                    .map(|worktree| worktree.checkout_path.clone()),
+                progress_step: None,
+                progress_percent: None,
                 command,
                 status: PluginCommandStatus::Failed,
                 started_unix_ms,
@@ -106,6 +114,13 @@ impl App {
             plugin_id: plugin.plugin_id.clone(),
             action_id,
             event,
+            workspace_id: context.workspace_id.clone(),
+            worktree_path: context
+                .worktree
+                .as_ref()
+                .map(|worktree| worktree.checkout_path.clone()),
+            progress_step: None,
+            progress_percent: None,
             command: command.clone(),
             status: PluginCommandStatus::Running,
             started_unix_ms,
@@ -201,13 +216,26 @@ impl App {
     }
 
     pub(crate) fn run_plugin_event_hooks(&mut self, event: &crate::api::schema::EventEnvelope) {
+        let (_, error) = self.start_plugin_event_hooks(event);
+        if let Some(err) = error {
+            tracing::warn!(err = %err, "failed to start plugin event hooks");
+        }
+    }
+
+    pub(crate) fn start_plugin_event_hooks(
+        &mut self,
+        event: &crate::api::schema::EventEnvelope,
+    ) -> (Vec<PluginCommandLogInfo>, Option<String>) {
         let event_name = event.event.dot_name();
         if !crate::api::schema::PLUGIN_HOOK_EVENT_KINDS.contains(&event.event) {
-            return;
+            return (Vec::new(), None);
         }
         if let Err(err) = self.refresh_installed_plugins() {
             tracing::warn!(err = %err, "failed to refresh plugin registry before event hooks");
-            return;
+            return (
+                Vec::new(),
+                Some(format!("failed to refresh plugin registry: {err}")),
+            );
         }
         let plugins = self
             .state
@@ -221,10 +249,12 @@ impl App {
             .cloned()
             .collect::<Vec<_>>();
         if plugins.is_empty() {
-            return;
+            return (Vec::new(), None);
         }
         let event_json = serde_json::to_string(event).ok();
         let context = self.plugin_context_for_event(event, event_name);
+        let mut started = Vec::new();
+        let mut launch_error = None;
         for plugin in plugins {
             for hook in plugin.events.clone() {
                 if hook.on != event_name {
@@ -238,16 +268,33 @@ impl App {
                 {
                     continue;
                 }
-                let _ = self.start_plugin_command(
+                let next_log_id = self.state.next_plugin_command_log_id;
+                match self.start_plugin_command(
                     &plugin,
                     None,
                     Some(event_name.to_string()),
                     hook.command.clone(),
                     &context,
                     event_json.clone(),
-                );
+                ) {
+                    Ok(log) => started.push(log),
+                    Err((_, message)) => {
+                        let expected_log_id = format!("plugin-log-{next_log_id}");
+                        if let Some(log) = self
+                            .state
+                            .plugin_command_logs
+                            .iter()
+                            .find(|log| log.log_id == expected_log_id)
+                        {
+                            started.push(log.clone());
+                        } else {
+                            launch_error.get_or_insert(message);
+                        }
+                    }
+                }
             }
         }
+        (started, launch_error)
     }
 
     fn push_plugin_command_log(&mut self, log: PluginCommandLogInfo) {

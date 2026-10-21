@@ -11,6 +11,28 @@ use crate::events::{ApiWorktreeAddRequest, ApiWorktreeRemoveRequest, AppEvent};
 use super::super::responses::{encode_error, encode_success};
 use super::{absolute_user_path, WorktreeSource};
 
+fn plugin_hook_failure_message(log: &crate::api::schema::PluginCommandLogInfo) -> String {
+    log.error
+        .as_deref()
+        .or_else(|| {
+            log.stderr
+                .as_deref()
+                .filter(|stderr| !stderr.trim().is_empty())
+        })
+        .map(str::trim)
+        .filter(|message| !message.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            format!(
+                "plugin {} exited with status {}",
+                log.plugin_id,
+                log.exit_code
+                    .map(|status| status.to_string())
+                    .unwrap_or_else(|| "unknown".to_string())
+            )
+        })
+}
+
 impl App {
     pub(crate) fn handle_deferred_worktree_api_request(
         &mut self,
@@ -343,13 +365,6 @@ impl App {
             return;
         }
 
-        let shutdown_panes =
-            if Self::should_shutdown_workspace_terminal_runtimes_for_worktree_remove(params.force) {
-                self.shutdown_workspace_terminal_runtimes_for_worktree_remove(ws_idx)
-            } else {
-                Vec::new()
-            };
-
         let operation_id = self.next_api_worktree_operation_id();
         self.pending_api_worktree_removes
             .insert(workspace_internal_id.clone(), operation_id);
@@ -357,24 +372,17 @@ impl App {
             .insert(checkout_key.clone(), operation_id);
         let workspace_snapshot = self.workspace_info(ws_idx);
         let worktree = self.worktree_info_for_membership(&space, None);
-        let command = crate::worktree::build_worktree_remove_command(
-            &space.repo_root,
-            &space.checkout_path,
-            params.force,
-            params.trust_repository,
-        );
         let api_request = ApiWorktreeRemoveRequest {
             id,
             operation_id,
             checkout_key,
-            shutdown_panes,
+            shutdown_panes: Vec::new(),
+            repo_root: space.repo_root.clone(),
+            trust_repository: params.trust_repository,
             respond_to,
         };
-        let repo_root = space.repo_root;
-        let trust_repository = params.trust_repository;
-        let event_tx = self.event_tx.clone();
         let finished = crate::events::WorktreeRemoveResult {
-            workspace_id: workspace_internal_id,
+            workspace_id: workspace_internal_id.clone(),
             path: space.checkout_path,
             workspace: Some(Box::new(workspace_snapshot)),
             worktree: Some(Box::new(worktree)),
@@ -382,6 +390,154 @@ impl App {
             api_request: Some(api_request),
             result: Ok(()),
         };
+
+        let (Some(workspace), Some(worktree)) = (
+            finished.workspace.as_deref().cloned(),
+            finished.worktree.as_deref().cloned(),
+        ) else {
+            self.fail_worktree_remove_before_hooks(finished, "worktree snapshot is unavailable");
+            return;
+        };
+        let event = EventEnvelope {
+            event: EventKind::WorktreeRemoving,
+            data: EventData::WorktreeRemoving {
+                workspace,
+                worktree,
+                forced: finished.forced,
+            },
+        };
+        let (logs, launch_error) = self.start_plugin_event_hooks(&event);
+        self.event_hub.push(event);
+        if let Some(error) = launch_error {
+            self.fail_worktree_remove_before_hooks(finished, error);
+            return;
+        }
+        if let Some(log) = logs
+            .iter()
+            .find(|log| log.status == crate::api::schema::PluginCommandStatus::Failed)
+        {
+            self.fail_worktree_remove_before_hooks(finished, plugin_hook_failure_message(log));
+            return;
+        }
+        let remaining_log_ids = logs
+            .iter()
+            .filter(|log| log.status == crate::api::schema::PluginCommandStatus::Running)
+            .map(|log| log.log_id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        if remaining_log_ids.is_empty() {
+            self.spawn_api_worktree_remove(finished);
+            return;
+        }
+        if let Some(api) = finished.api_request.as_ref() {
+            for log_id in &remaining_log_ids {
+                self.pending_plugin_worktree_remove_hooks
+                    .insert(log_id.clone(), api.operation_id);
+            }
+            self.pending_api_worktree_remove_hooks.insert(
+                api.operation_id,
+                crate::app::PendingApiWorktreeRemoveHooks {
+                    result: finished,
+                    remaining_log_ids,
+                },
+            );
+        }
+    }
+
+    fn fail_worktree_remove_before_hooks(
+        &mut self,
+        mut result: crate::events::WorktreeRemoveResult,
+        message: impl Into<String>,
+    ) {
+        let Some(api) = result.api_request.take() else {
+            return;
+        };
+        self.pending_api_worktree_removes
+            .remove(&result.workspace_id);
+        self.pending_api_worktree_remove_paths
+            .remove(&api.checkout_key);
+        Self::send_api_response(
+            api.respond_to,
+            encode_error(
+                api.id,
+                "worktree_remove_hook_failed",
+                format!("worktree removal hook failed: {}", message.into()),
+            ),
+        );
+    }
+
+    pub(crate) fn handle_worktree_remove_pre_hook_finished(
+        &mut self,
+        log_id: &str,
+    ) -> Vec<crate::app::actions::PaneStateUpdate> {
+        let Some(operation_id) = self.pending_plugin_worktree_remove_hooks.remove(log_id) else {
+            return Vec::new();
+        };
+        let failed_log = self
+            .state
+            .plugin_command_logs
+            .iter()
+            .find(|log| log.log_id == log_id)
+            .filter(|log| log.status == crate::api::schema::PluginCommandStatus::Failed)
+            .cloned();
+        let all_hooks_finished = {
+            let Some(pending) = self
+                .pending_api_worktree_remove_hooks
+                .get_mut(&operation_id)
+            else {
+                return Vec::new();
+            };
+            pending.remaining_log_ids.remove(log_id);
+            pending.remaining_log_ids.is_empty()
+        };
+        if let Some(log) = failed_log {
+            let Some(mut pending) = self.pending_api_worktree_remove_hooks.remove(&operation_id)
+            else {
+                return Vec::new();
+            };
+            for remaining in pending.remaining_log_ids.drain() {
+                self.pending_plugin_worktree_remove_hooks.remove(&remaining);
+            }
+            self.fail_worktree_remove_before_hooks(
+                pending.result,
+                plugin_hook_failure_message(&log),
+            );
+            return Vec::new();
+        }
+        if all_hooks_finished {
+            let Some(pending) = self.pending_api_worktree_remove_hooks.remove(&operation_id) else {
+                return Vec::new();
+            };
+            self.spawn_api_worktree_remove(pending.result);
+        }
+        Vec::new()
+    }
+
+    fn spawn_api_worktree_remove(&mut self, mut finished: crate::events::WorktreeRemoveResult) {
+        if Self::should_shutdown_workspace_terminal_runtimes_for_worktree_remove(finished.forced) {
+            if let Some(ws_idx) = self
+                .state
+                .workspaces
+                .iter()
+                .position(|workspace| workspace.id == finished.workspace_id)
+            {
+                if let Some(api) = finished.api_request.as_mut() {
+                    api.shutdown_panes =
+                        self.shutdown_workspace_terminal_runtimes_for_worktree_remove(ws_idx);
+                }
+            }
+        }
+        let Some(api) = finished.api_request.as_ref() else {
+            return;
+        };
+        let repo_root = api.repo_root.clone();
+        let trust_repository = api.trust_repository;
+        let command = crate::worktree::build_worktree_remove_command(
+            &repo_root,
+            &finished.path,
+            finished.forced,
+            trust_repository,
+        );
+        let event_tx = self.event_tx.clone();
         let spawned = crate::thread_spawn::spawn_named_with(
             "herdr-worktree-remove",
             finished,

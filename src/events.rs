@@ -38,6 +38,8 @@ pub struct ApiWorktreeRemoveRequest {
     pub operation_id: u64,
     pub checkout_key: std::path::PathBuf,
     pub shutdown_panes: Vec<crate::layout::PaneId>,
+    pub repo_root: std::path::PathBuf,
+    pub trust_repository: bool,
     pub respond_to: std::sync::mpsc::Sender<String>,
 }
 

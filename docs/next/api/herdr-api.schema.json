@@ -302,6 +302,30 @@
                   "type": "boolean"
                 },
                 "type": {
+                  "const": "worktree_removing",
+                  "type": "string"
+                },
+                "workspace": {
+                  "$ref": "#/schemas/event/$defs/WorkspaceInfo"
+                },
+                "worktree": {
+                  "$ref": "#/schemas/event/$defs/WorktreeInfo"
+                }
+              },
+              "required": [
+                "type",
+                "workspace",
+                "worktree",
+                "forced"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "forced": {
+                  "type": "boolean"
+                },
+                "type": {
                   "const": "worktree_removed",
                   "type": "string"
                 },
@@ -738,6 +762,7 @@
             "workspace_focused",
             "worktree_created",
             "worktree_opened",
+            "worktree_removing",
             "worktree_removed",
             "tab_created",
             "tab_closed",
@@ -3717,6 +3742,38 @@
           ],
           "type": "string"
         },
+        "PluginProgressReportParams": {
+          "properties": {
+            "log_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "percent": {
+              "format": "uint8",
+              "maximum": 100,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "plugin_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "step": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "step"
+          ],
+          "type": "object"
+        },
         "PluginSetEnabledParams": {
           "properties": {
             "plugin_id": {
@@ -4014,6 +4071,18 @@
               "properties": {
                 "type": {
                   "const": "worktree.opened",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "type": {
+                  "const": "worktree.removing",
                   "type": "string"
                 }
               },
@@ -6268,6 +6337,22 @@
         {
           "properties": {
             "method": {
+              "const": "plugin.progress.report",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PluginProgressReportParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
               "const": "plugin.pane.open",
               "type": "string"
             },
@@ -7015,6 +7100,30 @@
                   "type": "boolean"
                 },
                 "type": {
+                  "const": "worktree_removing",
+                  "type": "string"
+                },
+                "workspace": {
+                  "$ref": "#/schemas/success_response/$defs/WorkspaceInfo"
+                },
+                "worktree": {
+                  "$ref": "#/schemas/success_response/$defs/WorktreeInfo"
+                }
+              },
+              "required": [
+                "type",
+                "workspace",
+                "worktree",
+                "forced"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "forced": {
+                  "type": "boolean"
+                },
+                "type": {
                   "const": "worktree_removed",
                   "type": "string"
                 },
@@ -7466,6 +7575,7 @@
             "workspace_focused",
             "worktree_created",
             "worktree_opened",
+            "worktree_removing",
             "worktree_removed",
             "tab_created",
             "tab_closed",
@@ -8686,6 +8796,20 @@
             },
             "plugin_id": {
               "type": "string"
+            },
+            "progress_percent": {
+              "format": "uint8",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "progress_step": {
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "started_unix_ms": {
               "format": "uint64",

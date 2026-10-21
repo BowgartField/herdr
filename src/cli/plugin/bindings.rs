@@ -5,8 +5,8 @@ use clap::{builder::PossibleValue, Arg, ArgAction, ArgMatches, Command};
 use crate::api::schema::plugins::{
     PluginActionInvokeProjection, PluginActionListProjection, PluginLinkProjection,
     PluginListProjection, PluginLogListProjection, PluginPaneCloseProjection,
-    PluginPaneFocusProjection, PluginPaneOpenProjection, PluginSetEnabledProjection,
-    PluginUnlinkProjection,
+    PluginPaneFocusProjection, PluginPaneOpenProjection, PluginProgressReportProjection,
+    PluginSetEnabledProjection, PluginUnlinkProjection,
 };
 use crate::api::schema::{Method, PluginInvocationContext, PluginPanePlacement, SplitDirection};
 use crate::cli::projection::{self, Input, ParseError};
@@ -63,6 +63,21 @@ pub(crate) fn limit() -> Input<Option<usize>> {
                 .parse()
                 .map_err(|_| ParseError::Usage(format!("invalid --limit value: {value}")))?,
         );
+        Ok(())
+    })
+}
+
+pub(crate) fn percent() -> Input<Option<u8>> {
+    Input::value("percent", "0-100", |slot, value| {
+        let percent = value
+            .parse::<u8>()
+            .map_err(|_| ParseError::Usage(format!("invalid --percent value: {value}")))?;
+        if percent > 100 {
+            return Err(ParseError::Usage(format!(
+                "invalid --percent value: {value}; expected 0-100"
+            )));
+        }
+        *slot = Some(percent);
         Ok(())
     })
 }
@@ -266,6 +281,14 @@ const LOG: Leaf = Leaf {
     json: false,
 };
 
+const PROGRESS: &[Leaf] = &[Leaf {
+    name: "report",
+    about: "Report progress for the current plugin command",
+    arguments: PluginProgressReportProjection::arguments,
+    method: |m| PluginProgressReportProjection::from_matches(m).map(Method::PluginProgressReport),
+    json: false,
+}];
+
 fn group(name: &'static str, about: &'static str, leaves: &[Leaf]) -> Command {
     Command::new(name)
         .about(about)
@@ -316,6 +339,11 @@ pub(crate) fn command() -> Command {
                 .arg(Arg::new("plugin_id").value_name("PLUGIN_ID").required(true)),
         )
         .subcommand(group("action", "List or invoke plugin actions", ACTION))
+        .subcommand(group(
+            "progress",
+            "Report plugin command progress",
+            PROGRESS,
+        ))
         .subcommand(
             projection::command("log", (LOG.arguments)())
                 .about("Inspect plugin command logs")
@@ -340,6 +368,7 @@ fn leaf_matches(leaves: &[Leaf], matches: &ArgMatches) -> Result<(Method, bool),
 pub(crate) fn from_matches(matches: &ArgMatches) -> Result<(Method, bool), ParseError> {
     match matches.subcommand() {
         Some(("action", matches)) => leaf_matches(ACTION, matches),
+        Some(("progress", matches)) => leaf_matches(PROGRESS, matches),
         Some(("pane", matches)) => leaf_matches(PANE, matches),
         Some(("log", matches)) => LOG.method(matches.subcommand_matches("list").unwrap_or(matches)),
         _ => leaf_matches(DIRECT, matches),

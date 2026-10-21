@@ -142,6 +142,7 @@ operations::define_operations! {
     PluginActionList(PluginActionListParams) => "plugin.action.list", false, false;
     PluginActionInvoke(PluginActionInvokeParams) => "plugin.action.invoke", true, false;
     PluginLogList(PluginLogListParams) => "plugin.log.list", false, false;
+    PluginProgressReport(PluginProgressReportParams) => "plugin.progress.report", true, false;
     PluginPaneOpen(PluginPaneOpenParams) => "plugin.pane.open", true, false;
     PluginPaneFocus(PluginPaneFocusParams) => "plugin.pane.focus", true, false;
     PluginPaneClose(PluginPaneCloseParams) => "plugin.pane.close", true, false;

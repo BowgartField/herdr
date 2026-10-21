@@ -77,6 +77,12 @@ pub(crate) struct AppPolicy {
     pub(crate) background_updates: bool,
 }
 
+#[derive(Debug)]
+pub(crate) struct PendingApiWorktreeRemoveHooks {
+    pub(crate) result: crate::events::WorktreeRemoveResult,
+    pub(crate) remaining_log_ids: std::collections::HashSet<String>,
+}
+
 impl AppPolicy {
     pub(crate) const PRODUCTION: Self = Self {
         restore_session: true,
@@ -130,6 +136,8 @@ pub struct App {
     pub(crate) worktree_read_slots: std::sync::Arc<tokio::sync::Semaphore>,
     pub(crate) pending_api_worktree_removes: HashMap<String, u64>,
     pub(crate) pending_api_worktree_remove_paths: HashMap<std::path::PathBuf, u64>,
+    pub(crate) pending_api_worktree_remove_hooks: HashMap<u64, PendingApiWorktreeRemoveHooks>,
+    pub(crate) pending_plugin_worktree_remove_hooks: HashMap<String, u64>,
     pub(crate) pending_worktree_remove_runtime_exits: HashMap<crate::layout::PaneId, usize>,
     pub(crate) pending_worktree_remove_runtime_restores: HashMap<crate::layout::PaneId, u64>,
     pub(crate) next_api_worktree_operation_id: u64,
@@ -639,6 +647,8 @@ impl App {
             worktree_read_slots: std::sync::Arc::new(tokio::sync::Semaphore::new(8)),
             pending_api_worktree_removes: HashMap::new(),
             pending_api_worktree_remove_paths: HashMap::new(),
+            pending_api_worktree_remove_hooks: HashMap::new(),
+            pending_plugin_worktree_remove_hooks: HashMap::new(),
             pending_worktree_remove_runtime_exits: HashMap::new(),
             pending_worktree_remove_runtime_restores: HashMap::new(),
             next_api_worktree_operation_id: 1,

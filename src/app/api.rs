@@ -189,6 +189,12 @@ impl App {
                     crate::api::schema::PluginCommandStatus::Failed
                 };
             }
+            if self
+                .pending_plugin_worktree_remove_hooks
+                .contains_key(&log_id)
+            {
+                return self.handle_worktree_remove_pre_hook_finished(&log_id);
+            }
             return Vec::new();
         }
 
@@ -1246,6 +1252,9 @@ impl App {
             }
             Method::PluginLogList(params) => {
                 return self.handle_plugin_log_list(request.id, params);
+            }
+            Method::PluginProgressReport(params) => {
+                return self.handle_plugin_progress_report(request.id, params);
             }
             Method::PluginPaneOpen(params) => {
                 return self.handle_plugin_pane_open(request.id, params);

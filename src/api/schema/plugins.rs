@@ -320,6 +320,20 @@ cli_params! {
 
 cli_params! {
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+    pub struct PluginProgressReportParams => PluginProgressReportProjection {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub log_id: Option<String> => Field::new(None).input(bindings::optional_text("log-id", "ID")),
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub plugin_id: Option<String> => Field::new(None).input(bindings::optional_text("plugin", "ID")),
+        pub step: String => Field::new(String::new()).input(bindings::required_text("step", "TEXT")),
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(range(min = 0, max = 100))]
+        pub percent: Option<u8> => Field::new(None).input(bindings::percent()),
+    }
+}
+
+cli_params! {
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
     pub struct PluginActionInvokeParams => PluginActionInvokeProjection {
         pub action_id: String => Field::new(String::new()).input(bindings::id("action_id", "ACTION_ID")),
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -337,6 +351,14 @@ pub struct PluginCommandLogInfo {
     pub action_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub event: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress_step: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress_percent: Option<u8>,
     pub command: Vec<String>,
     pub status: PluginCommandStatus,
     pub started_unix_ms: u64,

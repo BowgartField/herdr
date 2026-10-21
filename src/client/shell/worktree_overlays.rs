@@ -308,6 +308,8 @@ pub(super) fn render_worktree_open_overlay(
 pub(super) fn render_worktree_remove_overlay(
     b: &mut Buffer,
     remove: &ClientWorktreeRemoveOverlay,
+    progress: Option<&crate::protocol::ClientShellWorktreeProgress>,
+    spinner_frame: usize,
     p: &Palette,
 ) -> Option<OverlayRender> {
     let popup = popup(b.area, 72, 10)?;
@@ -358,14 +360,36 @@ pub(super) fn render_worktree_remove_overlay(
         );
     }
     if remove.removing {
+        let percent = progress
+            .and_then(|progress| progress.percent)
+            .map(|percent| format!(" · {percent}%"))
+            .unwrap_or_default();
         put_text(
             b,
             inner.x,
             inner.y + 5,
             inner.width,
-            " removing…",
+            &format!(
+                " {} removing{percent}",
+                super::super::worktree_spinner_icon(spinner_frame)
+            ),
             Style::default().fg(p.accent).bg(p.panel_bg),
         );
+        if let Some(progress) = progress {
+            let step = progress
+                .step
+                .as_deref()
+                .unwrap_or("Preparing worktree removal…");
+            let step = truncate_worktree_progress(step, inner.width.saturating_sub(1) as usize);
+            put_text(
+                b,
+                inner.x,
+                inner.y + 6,
+                inner.width,
+                &format!(" {step}"),
+                Style::default().fg(p.subtext0).bg(p.panel_bg),
+            );
+        }
     } else if let Some(error) = remove.error.as_deref() {
         put_text(
             b,
@@ -415,4 +439,27 @@ pub(super) fn render_worktree_remove_overlay(
         cursor: None,
         ..OverlayRender::default()
     })
+}
+
+fn truncate_worktree_progress(text: &str, width: usize) -> String {
+    use unicode_width::UnicodeWidthChar;
+
+    if unicode_width::UnicodeWidthStr::width(text) <= width {
+        return text.to_owned();
+    }
+    if width <= 3 {
+        return ".".repeat(width);
+    }
+    let mut result = String::new();
+    let mut used = 0;
+    for ch in text.chars() {
+        let char_width = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + char_width > width - 3 {
+            break;
+        }
+        result.push(ch);
+        used += char_width;
+    }
+    result.push_str("...");
+    result
 }

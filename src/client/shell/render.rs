@@ -237,6 +237,7 @@ pub(super) struct ShellRenderState<'a> {
     pub(super) collapsed_groups: &'a HashSet<String>,
     pub(super) remote_collapsed_groups: &'a HashMap<ClientEndpointId, HashSet<String>>,
     pub(super) workspace_scroll: &'a mut usize,
+    pub(super) spinner_frame: usize,
     pub(super) agent_scroll: &'a mut usize,
     pub(super) tab_scroll: &'a mut usize,
     pub(super) reveal_focused_workspace: &'a mut bool,
@@ -293,6 +294,7 @@ pub(super) fn render_shell(
                 layout.sidebar,
                 snapshot,
                 config,
+                state.spinner_frame,
                 state
                     .selected_workspace_id
                     .map(|target| target.workspace_id.as_str()),

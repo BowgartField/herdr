@@ -681,6 +681,9 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return None;
                 }
+                if self.focused_worktree_setup_progress().is_some() {
+                    return None;
+                }
                 self.focused_pane_id().map(ClientInputTarget::Pane)
             }
             ClientShellMode::Prefix => {
@@ -694,6 +697,9 @@ impl ClientShellState {
                 if self.config.keybinds.matches_prefix(key) {
                     self.mode = return_mode;
                     outcome.repaint = true;
+                    if self.focused_worktree_setup_progress().is_some() {
+                        return None;
+                    }
                     return self.focused_pane_id().map(ClientInputTarget::Pane);
                 }
                 if key.code == KeyCode::Esc {
@@ -1177,12 +1183,22 @@ impl ClientShellState {
         key: crate::input::TerminalKey,
         outcome: &mut ClientShellInput,
     ) {
+        if key.kind != KeyEventKind::Release
+            && matches!(&target, ClientInputTarget::Pane(pane_id)
+                if self.focused_pane_id().as_deref() == Some(pane_id.as_str()))
+            && self.focused_worktree_setup_progress().is_some()
+        {
+            return;
+        }
         if let Some(event) = ClientPaneInputEvent::from_terminal_key(key) {
             super::push_target_event(target, event, outcome);
         }
     }
 
     fn push_focused_pane_event(&self, event: ClientPaneInputEvent, outcome: &mut ClientShellInput) {
+        if self.focused_worktree_setup_progress().is_some() {
+            return;
+        }
         if let Some(pane_id) = self.focused_pane_id() {
             super::push_target_event(ClientInputTarget::Pane(pane_id), event, outcome);
         }

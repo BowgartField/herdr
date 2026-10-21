@@ -1039,6 +1039,26 @@ pub struct ClientShellWorktree {
     pub key: String,
     pub label: String,
     pub is_linked_worktree: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<ClientShellWorktreeProgress>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientShellWorktreeProgress {
+    pub phase: ClientShellWorktreeProgressPhase,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub percent: Option<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClientShellWorktreeProgressPhase {
+    Setup,
+    Removal,
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

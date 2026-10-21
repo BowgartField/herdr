@@ -1051,3 +1051,81 @@ fn committed_text_still_reaches_a_report_all_pane_as_text() {
     let after = state.handle_input_bytes("\u{3042}".as_bytes());
     assert_eq!(pane_text_commits(&after).concat(), "\u{3042}");
 }
+
+#[test]
+fn worktree_setup_blocks_first_terminal_but_preserves_shell_navigation_and_other_tabs() {
+    let mut projected = snapshot();
+    projected.workspaces[0].worktree = Some(ClientShellWorktree {
+        key: "setup-worktree".into(),
+        label: "setup".into(),
+        is_linked_worktree: true,
+        progress: Some(crate::protocol::ClientShellWorktreeProgress {
+            phase: crate::protocol::ClientShellWorktreeProgressPhase::Setup,
+            step: Some("Installing dependencies".into()),
+            percent: Some(25),
+        }),
+    });
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(projected.clone()));
+    state.set_pane_surface(surface());
+    state.compose(106, 20).expect("setup frame");
+    assert!(state.visible_worktree_setup_progress().is_some());
+
+    let blocked = state.handle_raw_events(vec![
+        RawInputEvent::Key(crate::input::TerminalKey::new(
+            KeyCode::Char('x'),
+            KeyModifiers::empty(),
+        )),
+        RawInputEvent::Text(crate::input::TextCommit::new("typed")),
+        RawInputEvent::Paste("pasted".into()),
+    ]);
+    assert!(pane_key_events(&blocked).is_empty());
+    assert!(pane_text_commits(&blocked).is_empty());
+    assert!(!blocked
+        .requests
+        .iter()
+        .any(|request| matches!(request, ClientMessage::ClientShellPaneInput { .. })));
+
+    let (code, modifiers) = state.config.keybinds.primary_prefix().expect("prefix");
+    state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
+        code, modifiers,
+    ))]);
+    assert_eq!(state.mode, ClientShellMode::Prefix);
+    state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
+        KeyCode::Esc,
+        KeyModifiers::empty(),
+    ))]);
+    assert_eq!(state.mode, ClientShellMode::Terminal);
+
+    let workspace = state.hits.workspaces[0].rect;
+    let mouse = |kind| {
+        RawInputEvent::Mouse(MouseEvent {
+            kind,
+            column: workspace.x,
+            row: workspace.y,
+            modifiers: KeyModifiers::empty(),
+        })
+    };
+    state.handle_raw_events(vec![mouse(MouseEventKind::Down(MouseButton::Left))]);
+    let navigation = state.handle_raw_events(vec![mouse(MouseEventKind::Up(MouseButton::Left))]);
+    assert!(navigation.actions.iter().any(|action| matches!(
+        action,
+        ClientShellAction::Endpoint { request, .. }
+            if matches!(request.method, crate::api::schema::Method::WorkspaceFocus(_))
+    )));
+
+    let mut second_tab = projected.tabs[0].clone();
+    second_tab.tab_id = "tab_2".into();
+    second_tab.number = 2;
+    projected.tabs.push(second_tab);
+    projected.focused_tab_id = Some("tab_2".into());
+    projected.panes[0].tab_id = "tab_2".into();
+    state.set_snapshot(Box::new(projected));
+    state.set_pane_surface(surface());
+    state.compose(106, 20).expect("second tab frame");
+    assert!(state.visible_worktree_setup_progress().is_none());
+    let allowed = state.handle_raw_events(vec![RawInputEvent::Text(
+        crate::input::TextCommit::new("second tab"),
+    )]);
+    assert_eq!(pane_text_commits(&allowed), vec!["second tab"]);
+}
